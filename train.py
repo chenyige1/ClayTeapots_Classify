@@ -196,7 +196,7 @@ def train(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Image Classification Training')
-    parser.add_argument('--data-dir', type=str, default='./classify', help='path to dataset')
+    parser.add_argument('--data-dir', type=str, default='./dataset', help='path to dataset')
     parser.add_argument('--model-name', type=str, default='resnet34', choices=['resnet34', 'vgg19', 'googlenet'],
                         help='model architecture')
     parser.add_argument('--batch-size', type=int, default=32, help='batch size')
