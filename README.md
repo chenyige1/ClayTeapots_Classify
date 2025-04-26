@@ -22,43 +22,58 @@ pip install torch torchvision pillow tqdm
 ```
 
 ## 使用方法
+### 1. 数据扩充
+将指定文件夹中的图片进行数据增强
+```bash
+python 1data_expansion.py
+```
+### 2.数据分割
+将图片按照7 2 1分割为训练集，验证集和测试集
 
-### 1. 训练模型
+```bash
+python 2splite_data.py
+```
+### 3. 训练模型
 
 基本训练命令：
 ```bash
-python train.py --model-name resnet34 --epochs 20 --batch-size 32
+python train.py --model-name resnet34 --epochs 20 --batch-size -1
 ```
 
 可选参数：
 - `--model-name`: 选择模型（resnet34, vgg19, googlenet）
-- `--data-dir`: 数据集路径（默认：./classify）
-- `--batch-size`: 批次大小（默认：32）
+- `--data-dir`: 数据集路径（默认：./split_datasets）
+- `--batch-size`: 批次大小（默认：-1）
 - `--epochs`: 训练轮数（默认：20）
 - `--lr`: 学习率（默认：0.001）
-- `--num-workers`: 数据加载线程数（默认：4）
+- `--num-workers`: 数据加载线程数（默认：-1）
 
-训练完成后会保存：
+训练完成后会在output中保存：
 - `best_resnet34_model.pt`: 验证集上性能最好的模型
 - `final_resnet34_model.pt`: 最后一轮的模型
 - `label_mapping.json`: 类别索引与名称的映射
 
-### 2. 测试和整理图片
+### 4. 测试并整理大量图片
 
 基本测试命令：
+按照默认的测试图片路径将图片按分类文件夹进行放置
 ```bash
-python test.py --model-name resnet34
+python test.py
 ```
 
 可选参数：
-- `--model-name`: 选择模型（resnet34, vgg19, googlenet）
-- `--data-dir`: 数据集路径（默认：./classify）
-- `--model-path`: 模型文件路径（默认：best_模型名_model.pt）
-- `--output-dir`: 输出目录（默认：./classified_results）
+- `--model-path`: 选择模型（默认：./output/best_googlenet_model.pt）
+- `--data-dir`: 数据集路径（默认：./split_datasets/test）
 
 测试完成后：
 - 所有测试图片会被分类并复制到相应的类别文件夹
-- 生成`classification_results.json`记录每张图片的分类结果
+
+### 5. 测试单张图片并可视化
+将测试的单张图片准确里可视化并保存在output/visulize中
+
+```bash
+python visualization.py
+```
 
 ## 代码特点
 
@@ -77,23 +92,3 @@ python test.py --model-name resnet34
 3. 建议使用GPU训练以加快速度
 4. 可以通过调整batch_size来适应不同的GPU内存
 5. 模型会自动选择可用的设备（CPU或CUDA）
-
-## 示例命令
-
-使用VGG19训练：
-```bash
-python train.py --model-name vgg19 --epochs 30 --batch-size 16
-```
-
-使用训练好的模型进行测试：
-```bash
-python test.py --model-name vgg19 --model-path final_vgg19_model.pt --output-dir ./vgg19_results
-```
-
-## 性能提示
-
-1. ResNet34通常在准确率和速度之间有很好的平衡
-2. VGG19可能需要更多内存但特征提取能力强
-3. GoogLeNet在计算效率方面表现优秀
-4. 如果GPU内存不足，可以减小batch_size
-5. 建议先用少量epoch测试，确认代码运行正常后再进行完整训练
