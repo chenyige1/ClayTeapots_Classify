@@ -1,42 +1,62 @@
+import torch
+import torch.nn as nn
+from torchvision import transforms, models
+from PIL import Image
+import os
+import json
+import argparse
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
-import torchvision
-from PIL import Image
-import json
-import os
-import random
-from torchvision import transforms
-import argparse
 
 
-def visualize_predictions(args):
-    # 加载模型
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    if args.model_name == 'resnet34':
-        model = torchvision.models.resnet34(pretrained=False)
+# 获取模型
+def get_model(model_name, num_classes=6):
+    if model_name == 'resnet34':
+        model = models.resnet34(pretrained=False)
         num_ftrs = model.fc.in_features
-        model.fc = torch.nn.Linear(num_ftrs, 4)
-    elif args.model_name == 'vgg19':
-        model = torchvision.models.vgg19(pretrained=False)
+        model.fc = nn.Linear(num_ftrs, num_classes)
+    elif model_name == 'vgg19':
+        model = models.vgg19(pretrained=False)
         num_ftrs = model.classifier[6].in_features
-        model.classifier[6] = torch.nn.Linear(num_ftrs, 4)
-    elif args.model_name == 'googlenet':
-        model = torchvision.models.googlenet(pretrained=False)
+        model.classifier[6] = nn.Linear(num_ftrs, num_classes)
+    elif model_name == 'googlenet':
+        model = models.googlenet(pretrained=False)
         num_ftrs = model.fc.in_features
-        model.fc = torch.nn.Linear(num_ftrs, 4)
+        model.fc = nn.Linear(num_ftrs, num_classes)
+    else:
+        raise ValueError(f"Unsupported model: {model_name}")
 
-    model_path = args.model_path if args.model_path else f"best_{args.model_name}_model.pt"
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model = model.to(device)
-    model.eval()
+    return model
+
+
+def process_image(image_path, transform):
+    """处理图像为模型输入格式"""
+    image = Image.open(image_path).convert('RGB')
+    return transform(image).unsqueeze(0), image  # 返回张量和原始图像
+
+
+def classify_single_image(args):
+    # 设置设备
+    device = torch.device('cuda' if torch.cuda.is_available() and args.use_gpu else 'cpu')
+    print(f"Using device: {device}")
 
     # 加载标签映射
-    with open('label_mapping.json', 'r') as f:
-        idx_to_class = json.load(f)
+    label_mapping_path = os.path.join(os.path.dirname(args.model_path), 'label_mapping_resnet.json')
+    with open(label_mapping_path, 'r') as f:
+        label_mapping = json.load(f)
 
-    idx_to_class = {int(k): v for k, v in idx_to_class.items()}
+    # 将字符串键转换为整数
+    label_mapping = {int(k): v for k, v in label_mapping.items()}
+    num_classes = len(label_mapping)
+
+    # 实例化模型
+    model_name = os.path.basename(args.model_path).split('_')[1]  # 从文件名中提取模型名称
+    model = get_model(model_name, num_classes=num_classes)
+
+    # 加载模型权重
+    model.load_state_dict(torch.load(args.model_path, map_location=device), strict=False)
+    model = model.to(device)
+    model.eval()
 
     # 数据预处理
     transform = transforms.Compose([
@@ -45,114 +65,89 @@ def visualize_predictions(args):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    # 反归一化用于显示图片
-    inv_normalize = transforms.Normalize(
-        mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
-        std=[1 / 0.229, 1 / 0.224, 1 / 0.225]
-    )
-
-    # 获取测试图片
-    test_dir = os.path.join(args.data_dir, 'test')
-    test_images = []
-
-    for root, dirs, files in os.walk(test_dir):
-        for file in files:
-            if file.lower().endswith(('.png', '.jpg', '.jpeg')):
-                test_images.append(os.path.join(root, file))
-
-    # 随机选择9张图片进行可视化
-    if len(test_images) > 9:
-        test_images = random.sample(test_images, 9)
-
-    # 创建3x3的子图
-    fig, axes = plt.subplots(3, 3, figsize=(12, 12))
-    axes = axes.ravel()
-
-    for idx, img_path in enumerate(test_images):
-        if idx >= 9:
-            break
-
-        # 加载图片
-        image = Image.open(img_path).convert('RGB')
-        image_tensor = transform(image).unsqueeze(0).to(device)
+    # 处理图像
+    try:
+        img_tensor, original_img = process_image(args.image_path, transform)
+        img_tensor = img_tensor.to(device)
 
         # 预测
         with torch.no_grad():
-            outputs = model(image_tensor)
-            probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            confidence, predicted = probabilities.max(1)
+            outputs = model(img_tensor)
+            probabilities = torch.nn.functional.softmax(outputs, dim=1)[0]
 
-        # 显示图片
-        display_image = np.array(image.resize((224, 224)))
-        axes[idx].imshow(display_image)
-        axes[idx].axis('off')
+        # 获取每个类别的概率
+        class_probs = {label_mapping[i]: prob.item() for i, prob in enumerate(probabilities)}
+        predicted_idx = torch.argmax(probabilities).item()
+        predicted_class = label_mapping[predicted_idx]
+        confidence = probabilities[predicted_idx].item()
 
-        # 添加预测结果和置信度
-        pred_class = idx_to_class[predicted.item()]
-        axes[idx].set_title(f'Pred: {pred_class}\nConf: {confidence.item():.2%}', fontsize=12)
+        # 尝试获取真实类别（如果根据目录结构推断）
+        try:
+            true_class = os.path.basename(os.path.dirname(args.image_path))
+            if true_class in label_mapping.values():
+                print(f"True class: {true_class}")
+                is_correct = true_class == predicted_class
+                print(f"Prediction {'correct' if is_correct else 'incorrect'}")
+        except:
+            pass
 
-    # 隐藏空的子图
-    for idx in range(len(test_images), 9):
-        axes[idx].axis('off')
+        # 获取模型对这个类别的整体准确率（如果有验证集结果）
+        overall_accuracy = "None"  # 默认值
 
-    plt.tight_layout()
-    plt.savefig('prediction_visualization.png', dpi=300, bbox_inches='tight')
-    plt.show()
+        # 可视化结果
+        plt.figure(figsize=(12, 6))
 
-    # 创建混淆矩阵可视化
-    if args.confusion_matrix:
-        create_confusion_matrix(model, test_dir, transform, idx_to_class, device)
+        # 左边显示图像
+        plt.subplot(1, 2, 1)
+        plt.imshow(np.array(original_img))
+        plt.title(f"Predicted: {predicted_class} ({confidence:.2%})")
+        plt.axis('off')
 
+        # 右边显示分类概率条形图
+        plt.subplot(1, 2, 2)
+        bars = plt.barh(list(class_probs.keys()), list(class_probs.values()), color='skyblue')
+        plt.xlabel('Probability')
+        plt.title('Class Probabilities')
+        plt.xlim(0, 1)
+        plt.grid(axis='x', linestyle='--', alpha=0.7)
 
-def create_confusion_matrix(model, test_dir, transform, idx_to_class, device):
-    from sklearn.metrics import confusion_matrix
-    import seaborn as sns
+        # 给最高置信度的条形图高亮
+        bars[predicted_idx].set_color('orange')
 
-    true_labels = []
-    pred_labels = []
+        # 在条形图上添加概率值
+        for i, bar in enumerate(bars):
+            plt.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height() / 2,
+                     f'{class_probs[label_mapping[i]]:.2%}',
+                     va='center')
 
-    # 遍历测试集
-    for class_idx, class_name in idx_to_class.items():
-        class_dir = os.path.join(test_dir, class_name)
-        if os.path.exists(class_dir):
-            for img_name in os.listdir(class_dir):
-                if img_name.lower().endswith(('.png', '.jpg', '.jpeg')):
-                    img_path = os.path.join(class_dir, img_name)
+        plt.tight_layout()
 
-                    # 预测
-                    image = Image.open(img_path).convert('RGB')
-                    image_tensor = transform(image).unsqueeze(0).to(device)
+        # 保存可视化结果
+        output_dir = os.path.join('output', 'visualize')
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(args.image_path))[0]}_result.png")
+        plt.savefig(output_path)
 
-                    with torch.no_grad():
-                        outputs = model(image_tensor)
-                        _, predicted = outputs.max(1)
+        print(f"Prediction: {predicted_class} with {confidence:.2%} confidence")
+        print(f"Visualization saved to {output_path}")
 
-                    true_labels.append(class_idx)
-                    pred_labels.append(predicted.item())
+        # 显示图像（如果非服务器环境）
+        if not args.no_display:
+            plt.show()
 
-    # 创建混淆矩阵
-    cm = confusion_matrix(true_labels, pred_labels)
-
-    # 可视化
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=list(idx_to_class.values()),
-                yticklabels=list(idx_to_class.values()))
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    plt.title('Confusion Matrix')
-    plt.tight_layout()
-    plt.savefig('confusion_matrix.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    except Exception as e:
+        print(f"Error processing {args.image_path}: {e}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Visualize Model Predictions')
-    parser.add_argument('--data-dir', type=str, default='./classify', help='path to dataset')
-    parser.add_argument('--model-name', type=str, default='resnet34', choices=['resnet34', 'vgg19', 'googlenet'],
-                        help='model architecture')
-    parser.add_argument('--model-path', type=str, default=None, help='path to the trained model')
-    parser.add_argument('--confusion-matrix', action='store_true', help='generate confusion matrix')
+    parser = argparse.ArgumentParser(description='Classify a single image with visualization')
+    parser.add_argument('--model-path', type=str, default='./output/best_resnet34_model.pt', help='path to the trained model file')
+    # parser.add_argument('--model-path', type=str, default='./output/best_googlenet_model.pt', help='path to the trained model file')
+    # parser.add_argument('--image-path', type=str, default='./dataset/Flower_shape/IMG_20240628_143204.jpg', help='path to the image file to classify')
+    parser.add_argument('--image-path', type=str, default='./round.png', help='path to the image file to classify')
+    parser.add_argument('--use-gpu', action='store_true', help='use GPU if available')
+    parser.add_argument('--no-display', action='store_true',
+                        help='do not display visualization (for server environments)')
 
     args = parser.parse_args()
-    visualize_predictions(args)
+    classify_single_image(args)
