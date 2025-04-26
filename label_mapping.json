@@ -1,8 +1,8 @@
 {
-  "0": "方器",
-  "1": "花塑器",
-  "2": "提梁器",
-  "3": "纹器",
-  "4": "圆器",
+  "0": "Square",
+  "1": "Flower_shape",
+  "2": "Lifting_beam",
+  "3": "Patterned",
+  "4": "Round",
   "5": "background"
 }
