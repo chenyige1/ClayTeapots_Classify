@@ -1,0 +1,8 @@
+Class,Precision,Recall,F1-score
+Flower_shape,0.9877,0.9524,0.9697
+Lifting_beam,1.0000,0.9885,0.9942
+Patterned,0.9655,0.9032,0.9333
+Round,0.9917,0.9917,0.9917
+Square,0.9259,1.0000,0.9615
+background,1.0000,1.0000,1.0000
+Macro Average,0.9785,0.9726,0.9751
