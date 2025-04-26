@@ -65,15 +65,6 @@ def flatten_directory(target_dir):
 
 
 if __name__ == "__main__":
-    # 使用示例
-    # 移出train文件夹下的所有文件
-    train_dir = "./split_datasets/train"
-    flatten_directory(train_dir)
-
-    # 移出val文件夹下的所有文件
-    val_dir = "./split_datasets/val"
-    flatten_directory(val_dir)
-
     # 移出test文件夹下的所有文件
     test_dir = "./split_datasets/test"
     flatten_directory(test_dir)
